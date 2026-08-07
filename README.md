@@ -1,6 +1,6 @@
 # Description
 
-This repository is meant to serve as a general template for how to set up new repositories in the JogetOSS organization. 
+A Joget plugin that lets admins bulk-import data from Excel/CSV files into Joget forms via a userview menu tool.
 
 # Getting Help
 
