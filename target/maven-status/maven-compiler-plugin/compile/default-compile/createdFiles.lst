@@ -1,0 +1,12 @@
+org/joget/marketplace/dataimport/batchimport/ImportRow.class
+org/joget/marketplace/dataimport/batchimport/BatchImportJobStats.class
+org/joget/marketplace/dataimport/batchimport/BatchImportJobHelper.class
+org/joget/marketplace/dataimport/batchimport/BatchImportDaoImpl.class
+org/joget/marketplace/dataimport/batchimport/BatchImportMenu$XlsxCellValue.class
+org/joget/marketplace/dataimport/batchimport/BatchImportMenu.class
+org/joget/marketplace/dataimport/batchimport/BatchImportDao.class
+org/joget/marketplace/dataimport/batchimport/BatchImportResult.class
+org/joget/marketplace/dataimport/batchimport/Activator.class
+org/joget/marketplace/dataimport/batchimport/BatchImportMenu$BatchImportJobConfig.class
+org/joget/marketplace/dataimport/batchimport/BatchImportMenu$XlsxSheetHandler.class
+org/joget/marketplace/dataimport/batchimport/BatchImportMenu$1.class
