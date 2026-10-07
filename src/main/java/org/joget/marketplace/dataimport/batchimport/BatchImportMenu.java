@@ -48,6 +48,7 @@ import org.joget.apps.form.service.FormUtil;
 import org.joget.apps.userview.model.PwaOfflineNotSupported;
 import org.joget.apps.userview.model.UserviewMenu;
 import org.joget.commons.util.FileLimitException;
+import org.joget.commons.util.FileManager;
 import org.joget.commons.util.FileStore;
 import org.joget.commons.util.LogUtil;
 import org.joget.commons.util.PluginThread;
@@ -102,7 +103,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
 
     @Override
     public String getVersion() {
-        return "5.0.0";
+        return "9.1.0";
     }
 
     @Override
@@ -380,7 +381,11 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
 
     protected File persistUpload(MultipartFile importFile, String fileType) throws IOException {
         String suffix = "." + (fileType == null || fileType.isEmpty() ? "tmp" : fileType.toLowerCase(Locale.ENGLISH));
-        File tempFile = File.createTempFile("batch-import-", suffix);
+        File tempDir = new File(FileManager.getBaseDirectory());
+        if (!tempDir.isDirectory() && !tempDir.mkdirs()) {
+            throw new IOException("Unable to create temp directory " + tempDir.getAbsolutePath());
+        }
+        File tempFile = File.createTempFile("batch-import-", suffix, tempDir);
         try (InputStream inputStream = importFile.getInputStream()) {
             Files.copy(inputStream, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
@@ -497,12 +502,14 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
             StylesTable styles = reader.getStylesTable();
 
             Iterator<InputStream> sheets = reader.getSheetsData();
-            if (sheets.hasNext()) {
-                try (InputStream sheet = sheets.next()) {
-                    XMLReader parser = SAXHelper.newXMLReader();
-                    parser.setContentHandler(new XlsxSheetHandler(config, stats, sharedStrings, styles));
-                    parser.parse(new InputSource(sheet));
-                }
+            if (!sheets.hasNext()) {
+                throw new IOException("No worksheet found in XLSX file " + config.originalFilename);
+            }
+            try (InputStream sheet = sheets.next()) {
+                XMLReader parser = SAXHelper.newXMLReader();
+                XlsxSheetHandler handler = new XlsxSheetHandler(config, stats, sharedStrings, styles);
+                parser.setContentHandler(handler);
+                parser.parse(new InputSource(sheet));
             }
         }
     }
@@ -975,6 +982,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
         private int cellStyleIndex = -1;
         private int currentRowNumber = -1;
         private int nextRowNumber = 0;
+        private int rowsFound = 0;
         private boolean collectingValue = false;
 
         XlsxSheetHandler(BatchImportJobConfig config, BatchImportJobStats stats, SharedStrings sharedStrings, StylesTable styles) {
@@ -989,6 +997,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
         public void startElement(String uri, String localName, String qName, Attributes attributes) throws SAXException {
             String name = getElementName(localName, qName);
             if ("row".equals(name)) {
+                rowsFound++;
                 rowValues.clear();
                 String rowNumber = attributes.getValue("r");
                 if (rowNumber != null && !rowNumber.isEmpty()) {
@@ -1046,6 +1055,10 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
             } catch (SQLException e) {
                 throw new SAXException(e);
             }
+        }
+
+        int getRowsFound() {
+            return rowsFound;
         }
 
         private String getElementName(String localName, String qName) {

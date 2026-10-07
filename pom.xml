@@ -4,7 +4,7 @@
     <groupId>org.joget.marketplace.dataimport.batchimport</groupId>
     <artifactId>batch-import-tool</artifactId>
     <packaging>bundle</packaging>
-    <version>9.0.0</version>
+    <version>9.1.0</version>
     <name>batch-import-tool</name>
     <url>http://www.joget.org</url>
     <build>
@@ -55,7 +55,8 @@
                         <Embed-Directory>dependency</Embed-Directory>
                         <Embed-StripGroup>true</Embed-StripGroup>
                         <DynamicImport-Package>*</DynamicImport-Package>
-                        
+                        <_bundleannotations>org.joget.marketplace.*</_bundleannotations>
+
                         <!-- Plugin Information -->
                         <Joget-Name>batch-import-tool</Joget-Name>
                         <Joget-Description>batch-import-tool</Joget-Description>
@@ -74,7 +75,7 @@
         <dependency>
             <groupId>org.joget</groupId>
             <artifactId>wflow-core</artifactId>
-            <version>9.0.3</version>
+            <version>9.0-SNAPSHOT</version>
             <exclusions>
                 <exclusion>
                     <groupId>javax.servlet</groupId>
@@ -104,6 +105,11 @@
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
             <version>5.2.3</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+            <version>2.25.4</version>
         </dependency>
         <dependency>
             <groupId>commons-io</groupId>
