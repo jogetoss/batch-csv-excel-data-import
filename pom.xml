@@ -4,7 +4,7 @@
     <groupId>org.joget.marketplace.dataimport.batchimport</groupId>
     <artifactId>batch-import-tool</artifactId>
     <packaging>bundle</packaging>
-    <version>9.1.0</version>
+    <version>9.1.1</version>
     <name>batch-import-tool</name>
     <url>http://www.joget.org</url>
     <build>
@@ -75,7 +75,7 @@
         <dependency>
             <groupId>org.joget</groupId>
             <artifactId>wflow-core</artifactId>
-            <version>9.0-SNAPSHOT</version>
+            <version>9.0.3</version>
             <exclusions>
                 <exclusion>
                     <groupId>javax.servlet</groupId>

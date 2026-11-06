@@ -8,14 +8,17 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.joget.apps.app.service.AppUtil;
 import org.joget.apps.form.dao.FormDataDaoImpl;
+import org.joget.commons.util.LogUtil;
 
 public class BatchImportDaoImpl implements BatchImportDao {
 
@@ -50,7 +53,7 @@ public class BatchImportDaoImpl implements BatchImportDao {
     }
 
     @Override
-    public BatchImportResult saveBatch(String tableName, Set<String> fields, List<ImportRow> rows, String mode, String username, String userFullName) throws SQLException {
+    public BatchImportResult saveBatch(String tableName, Set<String> fields, List<ImportRow> rows, String mode, String username, String userFullName, List<DeleteRule> deleteRules) throws SQLException {
         BatchImportResult result = new BatchImportResult();
         if (rows == null || rows.isEmpty()) {
             return result;
@@ -63,7 +66,7 @@ public class BatchImportDaoImpl implements BatchImportDao {
             try {
                 Set<String> existingIds = findExistingIds(connection, tableName, rows);
                 if (BatchImportMenu.MODE_DELETE.equals(mode)) {
-                    result = deleteBatch(connection, tableName, rows, existingIds);
+                    result = deleteBatch(connection, tableName, rows, existingIds, deleteRules);
                 } else {
                     result = upsertBatch(connection, tableName, fields, rows, existingIds, mode, username, userFullName);
                 }
@@ -103,15 +106,25 @@ public class BatchImportDaoImpl implements BatchImportDao {
         return result;
     }
 
-    protected BatchImportResult deleteBatch(Connection connection, String tableName, List<ImportRow> rows, Set<String> existingIds) throws SQLException {
+    protected BatchImportResult deleteBatch(Connection connection, String tableName, List<ImportRow> rows, Set<String> existingIds, List<DeleteRule> deleteRules) throws SQLException {
         BatchImportResult result = new BatchImportResult();
         String sql = "DELETE FROM " + quoteIdentifier(connection, tableName) + " WHERE " + quoteIdentifier(connection, ID) + " = ?";
 
+        boolean hasRules = deleteRules != null && !deleteRules.isEmpty();
+        Set<String> deletableIds = hasRules ? findDeletableIds(connection, tableName, existingIds, deleteRules) : existingIds;
+
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             int queued = 0;
+            int blocked = 0;
             for (ImportRow row : rows) {
                 if (row.getId() == null || row.getId().trim().isEmpty() || !existingIds.contains(row.getId())) {
                     result.addSkipped(1);
+                    continue;
+                }
+                if (!deletableIds.contains(row.getId())) {
+                    // record exists but does not satisfy the delete validation rules
+                    result.addSkipped(1);
+                    blocked++;
                     continue;
                 }
                 statement.setString(1, row.getId());
@@ -122,8 +135,75 @@ public class BatchImportDaoImpl implements BatchImportDao {
                 statement.executeBatch();
                 result.addDeleted(queued);
             }
+            if (blocked > 0) {
+                LogUtil.info(getClass().getName(), blocked + " record(s) were not deleted because they do not satisfy the delete validation rules. table=" + tableName);
+            }
         }
         return result;
+    }
+
+    /**
+     * Returns the subset of existing record ids that satisfy every delete rule.
+     * A rule field with no column in the table is treated as an empty value.
+     */
+    protected Set<String> findDeletableIds(Connection connection, String tableName, Set<String> existingIds, List<DeleteRule> deleteRules) throws SQLException {
+        Set<String> deletable = new HashSet<String>();
+        if (existingIds.isEmpty()) {
+            return deletable;
+        }
+
+        Set<String> existingColumns = getExistingColumns(connection, tableName);
+        List<String> ruleFields = new ArrayList<String>();
+        for (DeleteRule rule : deleteRules) {
+            if (!ruleFields.contains(rule.getField()) && existingColumns.contains(fieldColumn(rule.getField()).toLowerCase(Locale.ENGLISH))) {
+                ruleFields.add(rule.getField());
+            }
+        }
+
+        List<String> idList = new ArrayList<String>(existingIds);
+        for (int start = 0; start < idList.size(); start += EXISTENCE_LOOKUP_CHUNK_SIZE) {
+            int end = Math.min(start + EXISTENCE_LOOKUP_CHUNK_SIZE, idList.size());
+            List<String> chunk = idList.subList(start, end);
+
+            List<String> selectColumns = new ArrayList<String>();
+            selectColumns.add(ID);
+            for (String field : ruleFields) {
+                selectColumns.add(fieldColumn(field));
+            }
+
+            StringBuilder sql = new StringBuilder("SELECT ");
+            appendIdentifierList(connection, sql, selectColumns);
+            sql.append(" FROM ").append(quoteIdentifier(connection, tableName));
+            sql.append(" WHERE ").append(quoteIdentifier(connection, ID)).append(" IN (");
+            appendPlaceholders(sql, chunk.size());
+            sql.append(")");
+
+            try (PreparedStatement statement = connection.prepareStatement(sql.toString())) {
+                int index = 1;
+                for (String id : chunk) {
+                    statement.setString(index++, id);
+                }
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    while (resultSet.next()) {
+                        Map<String, String> values = new HashMap<String, String>();
+                        for (int i = 0; i < ruleFields.size(); i++) {
+                            values.put(ruleFields.get(i), resultSet.getString(i + 2));
+                        }
+                        boolean allowed = true;
+                        for (DeleteRule rule : deleteRules) {
+                            if (!rule.isSatisfiedBy(values.get(rule.getField()))) {
+                                allowed = false;
+                                break;
+                            }
+                        }
+                        if (allowed) {
+                            deletable.add(resultSet.getString(1));
+                        }
+                    }
+                }
+            }
+        }
+        return deletable;
     }
 
     protected int executeInsertBatch(Connection connection, String tableName, Set<String> fields, List<ImportRow> rows, String username, String userFullName) throws SQLException {

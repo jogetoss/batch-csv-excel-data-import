@@ -72,6 +72,14 @@
         label : '@@userview.batchimportmenu.batchSize@@',
         type : 'textfield',
         value : '1000'
+    },
+    {
+        name : 'maxRows',
+        label : '@@userview.batchimportmenu.maxRows@@',
+        description : '@@userview.batchimportmenu.maxRows.desc@@',
+        type : 'textfield',
+        regex_validation : '^[0-9]*$',
+        validation_message : '@@userview.batchimportmenu.maxRows.invalid@@'
     }]
 },
 {
@@ -130,6 +138,52 @@
         options : [{
             value : 'true',
             label : ''
+        }]
+    },
+    {
+        name : 'deleteRules',
+        label : '@@userview.batchimportmenu.deleteRules@@',
+        description : '@@userview.batchimportmenu.deleteRules.desc@@',
+        type : 'grid',
+        columns : [{
+            key : 'field',
+            label : '@@userview.batchimportmenu.fieldName@@',
+            type : 'autocomplete',
+            options_ajax_on_change : 'formDefId',
+            options_ajax : '[CONTEXT_PATH]/web/json/console/app[APP_PATH]/form/columns/options'
+        },
+        {
+            key : 'operator',
+            label : '@@userview.batchimportmenu.deleteRules.operator@@',
+            type : 'selectbox',
+            options : [{
+                value : 'equals',
+                label : '@@userview.batchimportmenu.deleteRules.op.equals@@'
+            },
+            {
+                value : 'notEquals',
+                label : '@@userview.batchimportmenu.deleteRules.op.notEquals@@'
+            },
+            {
+                value : 'in',
+                label : '@@userview.batchimportmenu.deleteRules.op.in@@'
+            },
+            {
+                value : 'notIn',
+                label : '@@userview.batchimportmenu.deleteRules.op.notIn@@'
+            },
+            {
+                value : 'empty',
+                label : '@@userview.batchimportmenu.deleteRules.op.empty@@'
+            },
+            {
+                value : 'notEmpty',
+                label : '@@userview.batchimportmenu.deleteRules.op.notEmpty@@'
+            }]
+        },
+        {
+            key : 'value',
+            label : '@@userview.batchimportmenu.deleteRules.value@@'
         }]
     },
     {

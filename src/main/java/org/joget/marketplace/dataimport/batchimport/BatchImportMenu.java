@@ -103,7 +103,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
 
     @Override
     public String getVersion() {
-        return "9.1.0";
+        return "9.1.1";
     }
 
     @Override
@@ -174,7 +174,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
             PluginManager pluginManager = (PluginManager)AppUtil.getApplicationContext().getBean("pluginManager");
 
             setProperty("error", "true");
-            setProperty("messageOnError", pluginManager.getMessage("userview.batchimportmenu.error.invalidForm", getClass().getName(), null));
+            setProperty("messageOnError", pluginManager.getMessage("userview.batchimportmenu.error.invalidForm", getClass().getName(), "messages/batchImportMenu"));
         } else if (!(form.getLoadBinder() instanceof FormDataDeletableBinder)) {
             setProperty("disabledDelete", "true");
         }
@@ -189,7 +189,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
             if (job == null) {
                 PluginManager pluginManager = (PluginManager)AppUtil.getApplicationContext().getBean("pluginManager");
                 setProperty("error", "true");
-                setProperty("messageOnError", pluginManager.getMessage("userview.batchimportmenu.error.jobNotFound", getClass().getName(), null));
+                setProperty("messageOnError", pluginManager.getMessage("userview.batchimportmenu.error.jobNotFound", getClass().getName(), "messages/batchImportMenu"));
                 displayForm();
                 return;
             }
@@ -228,7 +228,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
                 PluginManager pluginManager = (PluginManager)AppUtil.getApplicationContext().getBean("pluginManager");
                 
                 setProperty("error", "true");
-                setProperty("messageOnError", pluginManager.getMessage("userview.batchimportmenu.error.invalidFileType", getClass().getName(), null));
+                setProperty("messageOnError", pluginManager.getMessage("userview.batchimportmenu.error.invalidFileType", getClass().getName(), "messages/batchImportMenu"));
                 displayForm();
                 return;
             }
@@ -238,7 +238,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
                 PluginManager pluginManager = (PluginManager)AppUtil.getApplicationContext().getBean("pluginManager");
                 
                 setProperty("error", "true");
-                setProperty("messageOnError", pluginManager.getMessage("userview.batchimportmenu.error.utf8", getClass().getName(), null));
+                setProperty("messageOnError", pluginManager.getMessage("userview.batchimportmenu.error.utf8", getClass().getName(), "messages/batchImportMenu"));
                 displayForm();
                 return;
             }
@@ -252,7 +252,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
                         PluginManager pluginManager = (PluginManager)AppUtil.getApplicationContext().getBean("pluginManager");
                     
                         setProperty("error", "true");
-                        setProperty("messageOnError", pluginManager.getMessage("userview.batchimportmenu.error.deleteModeIsNotSupported", getClass().getName(), null));
+                        setProperty("messageOnError", pluginManager.getMessage("userview.batchimportmenu.error.deleteModeIsNotSupported", getClass().getName(), "messages/batchImportMenu"));
                         displayForm();
                         return;
                     }
@@ -263,6 +263,29 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
 
                     importFields = getMappedFields(columnMapping);
                     File tempFile = persistUpload(importFile, detectedFileType);
+
+                    // reject the whole file up front if it has more rows than allowed, so nothing is partially imported
+                    int maxRows = getMaxRows();
+                    if (maxRows > 0) {
+                        boolean tooManyRows;
+                        try {
+                            tooManyRows = exceedsMaxRows(tempFile, detectedFileType, maxRows, getRowStart());
+                        } catch (IOException | RuntimeException e) {
+                            tempFile.delete();
+                            throw e;
+                        }
+                        if (tooManyRows) {
+                            tempFile.delete();
+                            PluginManager pluginManager = (PluginManager)AppUtil.getApplicationContext().getBean("pluginManager");
+
+                            setProperty("error", "true");
+                            setProperty("messageOnError", String.valueOf(pluginManager.getMessage("userview.batchimportmenu.error.maxRowsExceeded", getClass().getName(), "messages/batchImportMenu")).replace("{0}", String.valueOf(maxRows)));
+                            LogUtil.info(getClass().getName(), "Batch import rejected: file has more than " + maxRows + " rows. fileName=" + filename);
+                            displayForm();
+                            return;
+                        }
+                    }
+
                     String jobId = jobHelper.createQueuedJob(
                             filename,
                             detectedFileType,
@@ -290,7 +313,8 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
                             getPropertyString("customCsvDelimiter"),
                             getPropertyString("customCsvQuote"),
                             getCurrentUsername(),
-                            getCurrentUserFullName());
+                            getCurrentUserFullName(),
+                            MODE_DELETE.equals(getRequestParameterString("mode")) ? DeleteRule.fromGrid(getProperty("deleteRules")) : new ArrayList<DeleteRule>());
 
                     Thread importThread = new PluginThread(new Runnable() {
                         public void run() {
@@ -313,7 +337,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
                     PluginManager pluginManager = (PluginManager)AppUtil.getApplicationContext().getBean("pluginManager");
                     
                     setProperty("error", "true");
-                    setProperty("messageOnError", pluginManager.getMessage("userview.batchimportmenu.error.invalidForm", getClass().getName(), null));
+                    setProperty("messageOnError", pluginManager.getMessage("userview.batchimportmenu.error.invalidForm", getClass().getName(), "messages/batchImportMenu"));
                     displayForm();
                     return;
                 }
@@ -473,7 +497,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
             int rowCount = 0;
             List<ImportRow> batch = new ArrayList<ImportRow>(config.batchSize);
             while ((nextLine = reader.readNext()) != null) {
-                if (rowCount >= config.rowStart) {
+                if (rowCount >= config.rowStart && !isBlankRow(nextLine)) {
                     batch.add(buildCsvRow(config, rowCount, nextLine));
                     if (batch.size() >= config.batchSize) {
                         flushBatch(config, batch, stats);
@@ -519,7 +543,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
         List<ImportRow> batch = new ArrayList<ImportRow>(config.batchSize);
         while(rowIterator.hasNext()) {
             Row row = rowIterator.next();
-            if (rowCount >= config.rowStart) {
+            if (rowCount >= config.rowStart && !isBlankExcelRow(row)) {
                 batch.add(buildExcelRow(config, rowCount, row));
                 if (batch.size() >= config.batchSize) {
                     flushBatch(config, batch, stats);
@@ -580,7 +604,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
             return;
         }
 
-        result = batchImportDao.saveBatch(config.tableName, config.importFields, batch, config.mode, config.username, config.userFullName);
+        result = batchImportDao.saveBatch(config.tableName, config.importFields, batch, config.mode, config.username, config.userFullName, config.deleteRules);
         stats.addBatch(batchRows, result);
         jobHelper.updateProgress(config.jobId, stats);
         batch.clear();
@@ -773,26 +797,218 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
     }
 
     protected char resolveCsvDelimiter(BatchImportJobConfig config, char quote) throws IOException {
+        return resolveCsvDelimiter(config.file, config.customCsvDelimiter, config.originalFilename, quote);
+    }
+
+    protected char resolveCsvDelimiter(File file, String customCsvDelimiter, String fileName, char quote) throws IOException {
         char configuredDelimiter = CSVReader.DEFAULT_SEPARATOR;
-        boolean hasConfiguredDelimiter = config.customCsvDelimiter != null && !config.customCsvDelimiter.trim().isEmpty();
+        boolean hasConfiguredDelimiter = customCsvDelimiter != null && !customCsvDelimiter.trim().isEmpty();
         if (hasConfiguredDelimiter) {
-            configuredDelimiter = config.customCsvDelimiter.trim().charAt(0);
+            configuredDelimiter = customCsvDelimiter.trim().charAt(0);
         }
 
-        char detectedDelimiter = detectCsvDelimiter(config.file, quote);
+        char detectedDelimiter = detectCsvDelimiter(file, quote);
         if (!hasConfiguredDelimiter) {
             return detectedDelimiter;
         }
 
-        int configuredScore = scoreCsvDelimiter(config.file, configuredDelimiter, quote);
-        int detectedScore = scoreCsvDelimiter(config.file, detectedDelimiter, quote);
+        int configuredScore = scoreCsvDelimiter(file, configuredDelimiter, quote);
+        int detectedScore = scoreCsvDelimiter(file, detectedDelimiter, quote);
         if (detectedDelimiter != configuredDelimiter && configuredScore == 0 && detectedScore > 0) {
             LogUtil.warn(getClass().getName(), "Configured CSV delimiter " + describeDelimiter(configuredDelimiter)
                     + " did not match sampled file content. Using detected delimiter " + describeDelimiter(detectedDelimiter)
-                    + " for fileName=" + config.originalFilename);
+                    + " for fileName=" + fileName);
             return detectedDelimiter;
         }
         return configuredDelimiter;
+    }
+
+    protected int getMaxRows() {
+        String configured = getPropertyString("maxRows");
+        if (configured == null || configured.trim().isEmpty()) {
+            return 0;
+        }
+        try {
+            return Math.max(0, Integer.parseInt(configured.trim()));
+        } catch (NumberFormatException e) {
+            LogUtil.warn(getClass().getName(), "Invalid Maximum Rows Per Import value '" + configured + "'. No row limit applied.");
+            return 0;
+        }
+    }
+
+    /**
+     * Counts the data rows (rows from the configured start row onwards, exactly as the import
+     * counts them) and stops as soon as the limit is passed, so a huge file is never read in full.
+     */
+    protected boolean exceedsMaxRows(File file, String fileType, int maxRows, int rowStart) throws IOException {
+        if ("CSV".equals(fileType)) {
+            return csvExceedsMaxRows(file, maxRows, rowStart);
+        } else if ("XLS".equals(fileType)) {
+            return xlsExceedsMaxRows(file, maxRows, rowStart);
+        } else if ("XLSX".equals(fileType)) {
+            return xlsxExceedsMaxRows(file, maxRows, rowStart);
+        }
+        return false;
+    }
+
+    protected boolean csvExceedsMaxRows(File file, int maxRows, int rowStart) throws IOException {
+        char quote = CSVReader.DEFAULT_QUOTE_CHARACTER;
+        String customQuote = getPropertyString("customCsvQuote");
+        if (customQuote != null && !customQuote.isEmpty()) {
+            quote = customQuote.charAt(0);
+        }
+        char delimiter = resolveCsvDelimiter(file, getPropertyString("customCsvDelimiter"), file.getName(), quote);
+
+        try (InputStream fis = new FileInputStream(file)) {
+            CSVReader reader = new CSVReader(new InputStreamReader(fis, "UTF-8"), delimiter, quote);
+            int rowCount = 0;
+            int dataRows = 0;
+            String[] line;
+            while ((line = reader.readNext()) != null) {
+                if (rowCount >= rowStart && !isBlankRow(line)) {
+                    dataRows++;
+                    if (dataRows > maxRows) {
+                        return true;
+                    }
+                }
+                rowCount++;
+            }
+        }
+        return false;
+    }
+
+    protected boolean xlsExceedsMaxRows(File file, int maxRows, int rowStart) throws IOException {
+        try (InputStream fis = new FileInputStream(file);
+                HSSFWorkbook workbook = new HSSFWorkbook(fis)) {
+            Iterator<Row> rows = workbook.getSheetAt(0).iterator();
+            int rowCount = 0;
+            int dataRows = 0;
+            while (rows.hasNext()) {
+                Row row = rows.next();
+                if (rowCount >= rowStart && !isBlankExcelRow(row)) {
+                    dataRows++;
+                    if (dataRows > maxRows) {
+                        return true;
+                    }
+                }
+                rowCount++;
+            }
+        }
+        return false;
+    }
+
+    protected boolean xlsxExceedsMaxRows(File file, int maxRows, int rowStart) throws IOException {
+        try (OPCPackage pkg = OPCPackage.open(file, PackageAccess.READ)) {
+            XSSFReader reader = new XSSFReader(pkg, true);
+            Iterator<InputStream> sheets = reader.getSheetsData();
+            if (!sheets.hasNext()) {
+                return false;
+            }
+            try (InputStream sheet = sheets.next()) {
+                XMLReader parser = SAXHelper.newXMLReader();
+                parser.setContentHandler(new XlsxRowCounter(maxRows, rowStart));
+                parser.parse(new InputSource(sheet));
+            }
+        } catch (RowLimitExceededException e) {
+            return true;
+        } catch (SAXException | org.apache.poi.openxml4j.exceptions.OpenXML4JException | javax.xml.parsers.ParserConfigurationException e) {
+            throw new IOException(e);
+        }
+        return false;
+    }
+
+    /** A row is blank when every cell is empty or whitespace. Blank rows do not count towards the row limit. */
+    protected boolean isBlankRow(String[] row) {
+        if (row == null) {
+            return true;
+        }
+        for (String value : row) {
+            if (value != null && !value.trim().isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    protected boolean isBlankExcelRow(Row row) {
+        for (Cell cell : row) {
+            if (cell == null) {
+                continue;
+            }
+            CellType type = cell.getCellType();
+            if (type == CellType.BLANK) {
+                continue;
+            }
+            if (type == CellType.STRING && cell.getStringCellValue().trim().isEmpty()) {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    /** Thrown to stop parsing as soon as the row limit has been passed. */
+    protected static class RowLimitExceededException extends SAXException {
+        RowLimitExceededException() {
+            super("Row limit exceeded");
+        }
+    }
+
+    /**
+     * Counts data rows of an XLSX sheet. Rows are numbered the same way XlsxSheetHandler numbers them,
+     * but rows without any cell content (e.g. leftover empty formatted rows) are not counted.
+     */
+    protected static class XlsxRowCounter extends DefaultHandler {
+
+        private final int maxRows;
+        private final int rowStart;
+        private int nextRowNumber = 0;
+        private int currentRowNumber = -1;
+        private int dataRows = 0;
+        private boolean inValue = false;
+        private boolean rowHasContent = false;
+
+        XlsxRowCounter(int maxRows, int rowStart) {
+            this.maxRows = maxRows;
+            this.rowStart = rowStart;
+        }
+
+        @Override
+        public void startElement(String uri, String localName, String qName, Attributes attributes) throws SAXException {
+            String name = localName == null || localName.isEmpty() ? qName : localName;
+            if ("row".equals(name)) {
+                rowHasContent = false;
+                String rowNumber = attributes.getValue("r");
+                if (rowNumber != null && !rowNumber.isEmpty()) {
+                    currentRowNumber = Integer.parseInt(rowNumber) - 1;
+                    nextRowNumber = currentRowNumber + 1;
+                } else {
+                    currentRowNumber = nextRowNumber++;
+                }
+            } else if ("v".equals(name) || "t".equals(name)) {
+                inValue = true;
+            }
+        }
+
+        @Override
+        public void characters(char[] ch, int start, int length) throws SAXException {
+            if (inValue && !rowHasContent && new String(ch, start, length).trim().length() > 0) {
+                rowHasContent = true;
+            }
+        }
+
+        @Override
+        public void endElement(String uri, String localName, String qName) throws SAXException {
+            String name = localName == null || localName.isEmpty() ? qName : localName;
+            if ("v".equals(name) || "t".equals(name)) {
+                inValue = false;
+            } else if ("row".equals(name) && rowHasContent && currentRowNumber >= rowStart) {
+                dataRows++;
+                if (dataRows > maxRows) {
+                    throw new RowLimitExceededException();
+                }
+            }
+        }
     }
 
     protected char detectCsvDelimiter(File file, char quote) throws IOException {
@@ -942,11 +1158,13 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
         final String customCsvQuote;
         final String username;
         final String userFullName;
+        final List<DeleteRule> deleteRules;
 
         BatchImportJobConfig(String jobId, File file, String originalFilename, String normalizedFilename, String fileType, Object[] columnMapping,
                 String tableName, Set<String> importFields, String mode, int rowStart, int batchSize, String keyColumn,
                 String userviewKeyValue, String userviewKeyField, String customCsvDelimiter, String customCsvQuote,
-                String username, String userFullName) {
+                String username, String userFullName, List<DeleteRule> deleteRules) {
+            this.deleteRules = deleteRules;
             this.jobId = jobId;
             this.file = file;
             this.originalFilename = originalFilename;
@@ -1035,7 +1253,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
                     rowValues.put(columnIndex, new XlsxCellValue(value.toString(), cellType, cellStyleIndex));
                 }
             } else if ("row".equals(name)) {
-                if (currentRowNumber >= config.rowStart) {
+                if (currentRowNumber >= config.rowStart && !isBlankXlsxRow()) {
                     batch.add(buildXlsxRow(config, currentRowNumber, rowValues, sharedStrings, styles));
                     if (batch.size() >= config.batchSize) {
                         flushCurrentBatch();
@@ -1059,6 +1277,16 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
 
         int getRowsFound() {
             return rowsFound;
+        }
+
+        /** True when no cell of the current row has any content (e.g. leftover empty formatted rows). */
+        private boolean isBlankXlsxRow() {
+            for (XlsxCellValue cell : rowValues.values()) {
+                if (cell != null && cell.value != null && !cell.value.trim().isEmpty()) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         private String getElementName(String localName, String qName) {
