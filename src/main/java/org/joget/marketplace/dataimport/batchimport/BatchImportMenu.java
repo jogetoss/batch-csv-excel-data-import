@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import jakarta.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletRequest;
 import org.apache.poi.hssf.usermodel.HSSFCell;
 import org.apache.poi.hssf.usermodel.HSSFSheet;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
@@ -103,7 +103,7 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
 
     @Override
     public String getVersion() {
-        return "9.1.1";
+        return "8.0.0";
     }
 
     @Override
