@@ -440,9 +440,11 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
             } else if (config.normalizedFilename.endsWith(".XLSX")) {
                 importXlsx(config, stats);
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            // Throwable, not Exception: a java.lang.Error (e.g. ExceptionInInitializerError) would
+            // otherwise skip this block and the job would be reported as COMPLETED with 0 rows.
             errorCount = 1;
-            errorMessage = e.getLocalizedMessage();
+            errorMessage = (e instanceof Exception && e.getLocalizedMessage() != null) ? e.getLocalizedMessage() : describeFailure(e);
             LogUtil.error(getClass().getName(), e, "Batch import failed. jobId=" + config.jobId + ", fileName=" + config.originalFilename + ", fileType=" + config.fileType);
         } finally {
             long endMillis = System.currentTimeMillis();
@@ -477,6 +479,31 @@ public class BatchImportMenu extends UserviewMenu implements PwaOfflineNotSuppor
                 LogUtil.warn(getClass().getName(), "Unable to delete batch import temp file: " + config.file.getAbsolutePath());
             }
         }
+    }
+
+    /**
+     * Short description of a failure that includes its causes. Some errors carry no message of
+     * their own (e.g. ExceptionInInitializerError), so the cause chain is what explains them.
+     */
+    protected String describeFailure(Throwable t) {
+        StringBuilder description = new StringBuilder();
+        Throwable current = t;
+        int depth = 0;
+        while (current != null && depth < 4) {
+            if (depth > 0) {
+                description.append(" <- ");
+            }
+            description.append(current.getClass().getSimpleName());
+            String message = current.getLocalizedMessage();
+            if (message != null && !message.isEmpty()) {
+                description.append(": ").append(message);
+            }
+            Throwable next = current.getCause();
+            current = (next == current) ? null : next;
+            depth++;
+        }
+        String result = description.toString();
+        return result.length() > 250 ? result.substring(0, 250) : result;
     }
 
     protected void importCsv(BatchImportJobConfig config, BatchImportJobStats stats) throws IOException, SQLException {
